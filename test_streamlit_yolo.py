@@ -2,7 +2,7 @@ from ultralytics import YOLO
 import streamlit as st
 from PIL import Image
 
-model = YOLO("runs/detect/train-4/weights/best.pt")
+model = YOLO("models/best.pt")
 
 st.title("Pothole Detection using YOLOv8")
 
