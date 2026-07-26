@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 
-model = YOLO("runs/detect/train-4/weights/best.pt")
+model = YOLO("models/best.pt")
 
 results = model("road.jpg", save=True)
 
