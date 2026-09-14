@@ -1,0 +1,12 @@
+POTHOLE-AI-Anika-Backend/venv/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/backend.venv/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/__pycache__/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/**/__pycache__/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/.pytest_cache/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/**/.venv/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/**/backend.venv/
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/**/.env
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/**/*.db
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/backend/static/reports/*
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/backend/uploads/images/*
+POTHOLE-AI-Anika-Backend/POTHOLE-AI/backend/uploads/videos/*
