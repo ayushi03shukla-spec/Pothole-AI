@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+venv/
+.env
+*.db
+uploads/images/*
+!uploads/images/.gitkeep
+uploads/videos/*
+!uploads/videos/.gitkeep
+static/reports/*
+!static/reports/.gitkeep
+.pytest_cache/
+USE_SQLITE=True
