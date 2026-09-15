@@ -38,13 +38,13 @@ val_ds = val_ds.map(lambda x, y: (normalization_layer(x), y))
 model = models.Sequential([
     layers.Conv2D(32, (3,3), activation='relu', input_shape=(128,128,3)),
     layers.MaxPooling2D(),
-    
+
     layers.Conv2D(64, (3,3), activation='relu'),
     layers.MaxPooling2D(),
-    
+
     layers.Conv2D(128, (3,3), activation='relu'),
     layers.MaxPooling2D(),
-    
+
     layers.Flatten(),
     layers.Dense(128, activation='relu'),
     layers.Dense(1, activation='sigmoid')
@@ -73,17 +73,3 @@ print("Model saved successfully")
 
 import os
 print("Saved in directory:", os.getcwd())
-
-
-
-
-
-
-
-
-
-
-
-
-
-

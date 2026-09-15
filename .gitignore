@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+
+# YOLO training artifacts
+runs/
+yolov8n.pt
+
+# Uploaded/generated files
+backend/uploads/*
+backend/pothole_ai.db
+
+# Model cache
+*.cache
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
