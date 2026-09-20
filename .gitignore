@@ -29,3 +29,5 @@ backend/pothole_ai.db
 # OS
 .DS_Store
 Thumbs.db
+
+depth_test.png
