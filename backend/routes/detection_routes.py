@@ -1,8 +1,8 @@
 """
 routes/detection_routes.py
 
-Runs pothole detection on a previously uploaded image
-and stores each detected pothole in the database.
+Runs YOLO pothole detection on a previously uploaded image,
+then uses Depth Anything V2 to estimate pothole severity.
 """
 
 from flask import Blueprint, jsonify, request
@@ -12,6 +12,7 @@ from extensions import db
 from models.detection import Detection
 from models.pothole import Pothole
 from utils.yolo_detector import run_detection
+from utils.depth_estimator import analyze_image
 
 
 detection_bp = Blueprint(
@@ -21,39 +22,77 @@ detection_bp = Blueprint(
 )
 
 
-@detection_bp.route("/<int:detection_id>", methods=["POST"])
+def get_overall_severity(severities):
+    """
+    Determine the overall detection severity.
+
+    Priority:
+        high > medium > low > undetermined
+    """
+
+    if "high" in severities:
+        return "high"
+
+    if "medium" in severities:
+        return "medium"
+
+    if "low" in severities:
+        return "low"
+
+    return "undetermined"
+
+
+@detection_bp.route(
+    "/<int:detection_id>",
+    methods=["POST"]
+)
 @jwt_required()
 def run_detect(detection_id):
-    """Run YOLO detection for a previously uploaded file."""
+    """
+    Run YOLO detection and automatic depth-based
+    severity estimation.
+    """
 
     user_id = int(get_jwt_identity())
 
     detection = Detection.query.get(detection_id)
 
     if not detection:
-        return jsonify({"error": "Detection not found"}), 404
+        return jsonify({
+            "error": "Detection not found"
+        }), 404
 
     if str(detection.user_id) != str(user_id):
         return jsonify({
             "error": "Not authorized to access this detection"
         }), 403
 
-    file_path = detection.image_path or detection.video_path
+    # Automatic severity currently works with images.
+    file_path = detection.image_path
 
     if not file_path:
         return jsonify({
-            "error": "Detection has no associated file"
+            "error": "Detection does not contain an image file"
         }), 400
 
-    # Get confidence threshold from the frontend.
+    # ---------------------------------------------------------
+    # YOLO confidence threshold
+    # ---------------------------------------------------------
+
     confidence = request.args.get(
         "confidence",
         default=0.50,
         type=float
     )
 
-    # Keep threshold within a safe range.
-    confidence = max(0.25, min(confidence, 0.90))
+    confidence = max(
+        0.25,
+        min(confidence, 0.90)
+    )
+
+    # ---------------------------------------------------------
+    # YOLO detection
+    # ---------------------------------------------------------
 
     try:
         raw_boxes = run_detection(
@@ -61,34 +100,93 @@ def run_detect(detection_id):
             confidence=confidence
         )
 
-    except Exception as e:
+    except Exception as exc:
         detection.status = "failed"
         db.session.commit()
 
         return jsonify({
-            "error": f"Detection failed: {str(e)}"
+            "error": f"YOLO detection failed: {str(exc)}"
         }), 500
 
-    # Remove previous pothole records if this detection is re-run.
+    # ---------------------------------------------------------
+    # Remove previous pothole records if detection
+    # is being re-run.
+    # ---------------------------------------------------------
+
     Pothole.query.filter_by(
         detection_id=detection.id
     ).delete()
 
+    # ---------------------------------------------------------
+    # Automatic depth + severity estimation
+    # ---------------------------------------------------------
+
+    severity_results = []
+
+    if raw_boxes:
+
+        try:
+            severity_results = analyze_image(
+                file_path,
+                raw_boxes
+            )
+
+        except Exception as exc:
+            detection.status = "failed"
+            db.session.commit()
+
+            return jsonify({
+                "error": (
+                    "Depth-based severity estimation "
+                    f"failed: {str(exc)}"
+                )
+            }), 500
+
+    # Make sure there is one result for every YOLO box.
+    while len(severity_results) < len(raw_boxes):
+
+        severity_results.append({
+            "severity": "undetermined",
+            "residual_90": None,
+            "positive_fraction": None,
+        })
+
     confidences = []
+    severities = []
 
-    for box in raw_boxes:
+    # ---------------------------------------------------------
+    # Store potholes
+    # ---------------------------------------------------------
 
-        width = box["x_max"] - box["x_min"]
-        height = box["y_max"] - box["y_min"]
+    for box, severity_result in zip(
+        raw_boxes,
+        severity_results
+    ):
+
+        width = (
+            box["x_max"]
+            - box["x_min"]
+        )
+
+        height = (
+            box["y_max"]
+            - box["y_min"]
+        )
+
         size = width * height
 
-        # IMPORTANT:
-        # A normal RGB image does not provide reliable physical
-        # pothole depth in millimetres.
-        #
-        # Therefore we do NOT claim Low / Medium / High severity
-        # from bounding-box pixel area.
-        severity = "undetermined"
+        severity = severity_result.get(
+            "severity",
+            "undetermined"
+        )
+
+        if severity not in (
+            "low",
+            "medium",
+            "high",
+            "undetermined"
+        ):
+            severity = "undetermined"
 
         pothole = Pothole(
             detection_id=detection.id,
@@ -103,26 +201,49 @@ def run_detect(detection_id):
             size=size,
 
             confidence=box["confidence"],
+
+            # We intentionally do NOT put the model's
+            # residual into depth_mm because residual
+            # is not a calibrated physical depth measurement.
+            depth_mm=None,
+
             severity=severity,
         )
 
         db.session.add(pothole)
-        confidences.append(box["confidence"])
 
-    # Update overall detection information.
-    detection.pothole_count = len(raw_boxes)
+        confidences.append(
+            box["confidence"]
+        )
+
+        severities.append(
+            severity
+        )
+
+    # ---------------------------------------------------------
+    # Update overall detection information
+    # ---------------------------------------------------------
+
+    detection.pothole_count = len(
+        raw_boxes
+    )
 
     detection.confidence = (
         round(
-            sum(confidences) / len(confidences),
-            2
+            sum(confidences)
+            / len(confidences),
+            4
         )
         if confidences
         else 0.0
     )
 
     if raw_boxes:
-        detection.severity = "undetermined"
+        detection.severity = (
+            get_overall_severity(
+                severities
+            )
+        )
     else:
         detection.severity = "none"
 
@@ -130,22 +251,36 @@ def run_detect(detection_id):
 
     db.session.commit()
 
+    # ---------------------------------------------------------
+    # Response
+    # ---------------------------------------------------------
+
     return jsonify({
-        "message": "Detection complete",
+        "message": (
+            "Detection and automatic "
+            "severity estimation complete"
+        ),
         "detection": detection.to_dict(
             include_potholes=True
         ),
     }), 200
 
 
-@detection_bp.route("/<int:detection_id>", methods=["GET"])
+@detection_bp.route(
+    "/<int:detection_id>",
+    methods=["GET"]
+)
 @jwt_required()
 def get_detection(detection_id):
     """Get a previously processed detection."""
 
-    user_id = int(get_jwt_identity())
+    user_id = int(
+        get_jwt_identity()
+    )
 
-    detection = Detection.query.get(detection_id)
+    detection = Detection.query.get(
+        detection_id
+    )
 
     if not detection:
         return jsonify({
@@ -154,7 +289,10 @@ def get_detection(detection_id):
 
     if str(detection.user_id) != str(user_id):
         return jsonify({
-            "error": "Not authorized to access this detection"
+            "error": (
+                "Not authorized to access "
+                "this detection"
+            )
         }), 403
 
     return jsonify({

@@ -3,7 +3,8 @@ routes/upload_routes.py
 Handles image/video upload from Anamika's Upload Page.
 Creates a 'pending' Detection row immediately, so the frontend gets a
 detection_id to show in the UI right away, then calls /api/detect/<id>
-to actually run the model (mock now, real YOLO after Phase 3).
+to run the real YOLOv8 detection and automatic
+depth-based severity estimation.
 """
 
 from flask import Blueprint, request, jsonify, current_app

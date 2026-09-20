@@ -1,4 +1,5 @@
 import io
+import hashlib
 
 import piexif
 import requests
@@ -374,6 +375,20 @@ def show_image_detection():
     if uploaded_file is None:
         return
 
+    # Create a stable signature so the previous detection is cleared
+    # automatically when the user selects a different image.
+    file_signature = hashlib.sha256(
+        uploaded_file.getvalue()
+    ).hexdigest()
+
+    if (
+        st.session_state.get("detection_file_signature")
+        != file_signature
+    ):
+        st.session_state["detection_file_signature"] = file_signature
+        st.session_state["last_detection"] = None
+        st.session_state["last_detection_id"] = None
+
     # ------------------------------------------------------------
     # Extract EXIF GPS automatically
     # ------------------------------------------------------------
@@ -394,10 +409,7 @@ def show_image_detection():
         use_container_width=True,
     )
 
-    file_size = (
-        uploaded_file.size
-        / (1024 * 1024)
-    )
+    file_size = uploaded_file.size / (1024 * 1024)
 
     st.info(
         f"File size: {file_size:.2f} MB"
@@ -415,7 +427,6 @@ def show_image_detection():
         exif_latitude is not None
         and exif_longitude is not None
     ):
-
         st.success(
             "GPS location found automatically "
             "from image metadata."
@@ -432,14 +443,11 @@ def show_image_detection():
             value=True,
             key="use_exif_location",
         )
-
     else:
-
         st.info(
             "No GPS metadata was found "
             "in this image."
         )
-
         use_exif_location = False
 
     location_enabled = st.checkbox(
@@ -459,13 +467,11 @@ def show_image_detection():
     longitude = None
 
     if location_enabled:
-
         if (
             use_exif_location
             and exif_latitude is not None
             and exif_longitude is not None
         ):
-
             latitude = exif_latitude
             longitude = exif_longitude
 
@@ -473,15 +479,10 @@ def show_image_detection():
                 "Using GPS coordinates "
                 "from the image."
             )
-
         else:
-
-            location_col1, location_col2 = (
-                st.columns(2)
-            )
+            location_col1, location_col2 = st.columns(2)
 
             with location_col1:
-
                 latitude = st.number_input(
                     "Latitude",
                     min_value=-90.0,
@@ -496,7 +497,6 @@ def show_image_detection():
                 )
 
             with location_col2:
-
                 longitude = st.number_input(
                     "Longitude",
                     min_value=-180.0,
@@ -536,68 +536,56 @@ def show_image_detection():
         use_container_width=True,
         key="backend_analyze_image",
     ):
-
         token = get_api_token()
 
         if not token:
-
             st.error(
                 "Authentication token not found. "
                 "Please log in again before "
                 "analyzing an image."
             )
-
             return
 
         if location_enabled:
-
             if (
                 latitude is None
                 or longitude is None
             ):
-
                 st.error(
                     "Please provide valid GPS "
                     "coordinates or turn off "
                     "Add GPS location."
                 )
-
                 return
 
             if (
                 float(latitude) == 0.0
                 and float(longitude) == 0.0
             ):
-
                 st.error(
                     "Please enter a real GPS "
                     "location. Latitude and "
                     "longitude cannot both be 0."
                 )
-
                 return
 
         try:
-
             with st.spinner(
                 "Uploading image to backend..."
             ):
-
-                upload_result = (
-                    upload_image_to_backend(
-                        uploaded_file,
-                        token,
-                        latitude=(
-                            latitude
-                            if location_enabled
-                            else None
-                        ),
-                        longitude=(
-                            longitude
-                            if location_enabled
-                            else None
-                        ),
-                    )
+                upload_result = upload_image_to_backend(
+                    uploaded_file,
+                    token,
+                    latitude=(
+                        latitude
+                        if location_enabled
+                        else None
+                    ),
+                    longitude=(
+                        longitude
+                        if location_enabled
+                        else None
+                    ),
                 )
 
             detection = upload_result.get(
@@ -605,17 +593,13 @@ def show_image_detection():
             )
 
             if not detection:
-
                 st.error(
                     "Backend did not return "
                     "a detection record."
                 )
-
                 return
 
-            detection_id = detection[
-                "id"
-            ]
+            detection_id = detection["id"]
 
             st.info(
                 "Image uploaded successfully. "
@@ -625,13 +609,10 @@ def show_image_detection():
             with st.spinner(
                 "Running YOLOv8 detection..."
             ):
-
-                detection_result = (
-                    run_backend_detection(
-                        detection_id,
-                        token,
-                        confidence_threshold,
-                    )
+                detection_result = run_backend_detection(
+                    detection_id,
+                    token,
+                    confidence_threshold,
                 )
 
             detection = detection_result.get(
@@ -639,438 +620,48 @@ def show_image_detection():
             )
 
             if not detection:
-
                 st.error(
                     "Backend did not return "
                     "detection results."
                 )
-
                 return
+
+            # Persist the result so it remains visible after Streamlit
+            # reruns caused by depth inputs/buttons.
+            st.session_state["last_detection"] = detection
+            st.session_state["last_detection_id"] = detection_id
+            st.session_state["detection_file_signature"] = file_signature
 
             st.success(
                 "Analysis Complete!"
             )
 
-            potholes = detection.get(
-                "potholes",
-                [],
-            )
-
-            # ----------------------------------------------------
-            # Results
-            # ----------------------------------------------------
-
-            result_col1, result_col2 = (
-                st.columns(2)
-            )
-
-            with result_col1:
-
-                st.markdown(
-                    "### Detection Result"
-                )
-
-                annotated_image = (
-                    draw_detection_boxes(
-                        image,
-                        potholes,
-                    )
-                )
-
-                st.image(
-                    annotated_image,
-                    caption=(
-                        "YOLOv8 Detection Result"
-                    ),
-                    use_container_width=True,
-                )
-
-            with result_col2:
-
-                pothole_count = int(
-                    detection.get(
-                        "pothole_count",
-                        0,
-                    )
-                    or 0
-                )
-
-                average_confidence = float(
-                    detection.get(
-                        "confidence",
-                        0.0,
-                    )
-                    or 0.0
-                )
-
-                overall_severity = str(
-                    detection.get(
-                        "severity",
-                        "none",
-                    )
-                    or "none"
-                )
-
-                status = str(
-                    detection.get(
-                        "status",
-                        "unknown",
-                    )
-                )
-
-                st.metric(
-                    "Total Potholes",
-                    pothole_count,
-                )
-
-                st.metric(
-                    "Average Confidence",
-                    (
-                        f"{average_confidence * 100:.2f}%"
-                    ),
-                )
-
-                st.metric(
-                    "Severity",
-                    overall_severity.capitalize(),
-                )
-
-                if (
-                    overall_severity.lower()
-                    == "undetermined"
-                ):
-
-                    st.info(
-                        "Severity cannot be reliably "
-                        "determined from this image "
-                        "alone. Physical depth or scale "
-                        "information is required for "
-                        "real-world severity classification."
-                    )
-
-                st.caption(
-                    f"Backend status: {status}"
-                )
-
-                st.caption(
-                    "Confidence threshold used: "
-                    f"{confidence_threshold:.0%}"
-                )
-
-                if location_enabled:
-
-                    st.caption(
-                        "GPS saved: "
-                        f"{float(latitude):.6f}, "
-                        f"{float(longitude):.6f}"
-                    )
-
-                else:
-
-                    st.caption(
-                        "GPS: Not provided"
-                    )
-
-            # ----------------------------------------------------
-            # Summary table
-            # ----------------------------------------------------
-
-            st.markdown(
-                "### Detection Summary"
-            )
-
-            severity_counts = {
-                "High": 0,
-                "Medium": 0,
-                "Low": 0,
-                "Undetermined": 0,
-            }
-
-            detected = []
-
-            image_width, image_height = (
-                image.size
-            )
-
-            image_area = (
-                image_width
-                * image_height
-            )
-
-            for index, pothole in enumerate(
-                potholes
-            ):
-
-                confidence = float(
-                    pothole.get(
-                        "confidence",
-                        0.0,
-                    )
-                )
-
-                width = float(
-                    pothole.get(
-                        "width",
-                        0.0,
-                    )
-                )
-
-                height = float(
-                    pothole.get(
-                        "height",
-                        0.0,
-                    )
-                )
-
-                size = float(
-                    pothole.get(
-                        "size",
-                        width * height,
-                    )
-                )
-
-                severity = str(
-                    pothole.get(
-                        "severity",
-                        "undetermined",
-                    )
-                ).capitalize()
-
-                if severity not in severity_counts:
-                    severity = "Undetermined"
-
-                severity_counts[
-                    severity
-                ] += 1
-
-                bbox = pothole.get(
-                    "bbox",
-                    {},
-                )
-
-                x_min = float(
-                    bbox.get(
-                        "x_min",
-                        0,
-                    )
-                )
-
-                y_min = float(
-                    bbox.get(
-                        "y_min",
-                        0,
-                    )
-                )
-
-                x_max = float(
-                    bbox.get(
-                        "x_max",
-                        0,
-                    )
-                )
-
-                y_max = float(
-                    bbox.get(
-                        "y_max",
-                        0,
-                    )
-                )
-
-                center_x = int(
-                    (
-                        x_min
-                        + x_max
-                    )
-                    / 2
-                )
-
-                center_y = int(
-                    (
-                        y_min
-                        + y_max
-                    )
-                    / 2
-                )
-
-                area_ratio = (
-                    size / image_area
-                    if image_area > 0
-                    else 0
-                )
-
-                detected.append(
-                    {
-                        "ID": (
-                            f"P{index + 1:03d}"
-                        ),
-                        "Severity": severity,
-                        "Confidence": (
-                            confidence * 100
-                        ),
-                        "Size": (
-                            f"{width:.0f} x "
-                            f"{height:.0f}"
-                        ),
-                        "Location": (
-                            f"({center_x}, "
-                            f"{center_y})"
-                        ),
-                        "Area Ratio": (
-                            f"{area_ratio:.2%}"
-                        ),
-                    }
-                )
-
-            if detected:
-
-                df = pd.DataFrame(
-                    detected
-                )
-
-                st.dataframe(
-                    df,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-            else:
-
-                st.info(
-                    "No potholes were detected."
-                )
-
-            # ----------------------------------------------------
-            # Severity chart
-            # ----------------------------------------------------
-
-            fig = go.Figure(
-                data=[
-                    go.Bar(
-                        x=[
-                            "High",
-                            "Medium",
-                            "Low",
-                            "Undetermined",
-                        ],
-                        y=[
-                            severity_counts[
-                                "High"
-                            ],
-                            severity_counts[
-                                "Medium"
-                            ],
-                            severity_counts[
-                                "Low"
-                            ],
-                            severity_counts[
-                                "Undetermined"
-                            ],
-                        ],
-                    )
-                ]
-            )
-
-            fig.update_layout(
-                title=(
-                    "Severity Distribution"
-                ),
-                height=300,
-                yaxis_title=(
-                    "Number of Potholes"
-                ),
-            )
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-            )
-
-            # ----------------------------------------------------
-            # Individual pothole details
-            # ----------------------------------------------------
-
-            st.markdown(
-                "### Detected Potholes"
-            )
-
-            for pothole in detected:
-
-                with st.expander(
-                    f"{pothole['ID']} - "
-                    f"{pothole['Severity']}"
-                ):
-
-                    detail_col1, detail_col2 = (
-                        st.columns(2)
-                    )
-
-                    with detail_col1:
-
-                        st.write(
-                            "**Confidence:** "
-                            f"{pothole['Confidence']:.2f}%"
-                        )
-
-                        st.write(
-                            "**Bounding Box Size:** "
-                            f"{pothole['Size']}"
-                        )
-
-                    with detail_col2:
-
-                        st.write(
-                            "**Center:** "
-                            f"{pothole['Location']}"
-                        )
-
-                        st.write(
-                            "**Area Ratio:** "
-                            f"{pothole['Area Ratio']}"
-                        )
-
         except requests.HTTPError as exc:
-
             response = exc.response
 
             if response is not None:
-
                 try:
-
-                    error_data = (
-                        response.json()
-                    )
-
+                    error_data = response.json()
                     message = (
-                        error_data.get(
-                            "error"
-                        )
-                        or error_data.get(
-                            "msg"
-                        )
+                        error_data.get("error")
+                        or error_data.get("msg")
                         or str(error_data)
                     )
-
                     st.error(
                         f"Backend error: {message}"
                     )
-
                 except ValueError:
-
                     st.error(
                         "Backend returned HTTP "
                         f"{response.status_code}: "
                         f"{response.text}"
                     )
-
             else:
-
                 st.error(
-                    f"Backend request failed: "
-                    f"{exc}"
+                    f"Backend request failed: {exc}"
                 )
 
         except requests.RequestException as exc:
-
             st.error(
                 "Could not connect to Flask "
                 f"backend at {BACKEND_URL}. "
@@ -1079,8 +670,353 @@ def show_image_detection():
             )
 
         except Exception as exc:
-
             st.exception(exc)
+
+    # ------------------------------------------------------------
+    # Display the latest saved detection result
+    # ------------------------------------------------------------
+
+    detection = st.session_state.get("last_detection")
+    detection_id = st.session_state.get("last_detection_id")
+
+    if not detection or detection_id is None:
+        return
+
+    potholes = detection.get(
+        "potholes",
+        [],
+    )
+
+    # ------------------------------------------------------------
+    # Results
+    # ------------------------------------------------------------
+
+    result_col1, result_col2 = st.columns(2)
+
+    with result_col1:
+        st.markdown(
+            "### Detection Result"
+        )
+
+        annotated_image = draw_detection_boxes(
+            image,
+            potholes,
+        )
+
+        st.image(
+            annotated_image,
+            caption="YOLOv8 Detection Result",
+            use_container_width=True,
+        )
+
+    with result_col2:
+        pothole_count = int(
+            detection.get(
+                "pothole_count",
+                0,
+            )
+            or 0
+        )
+
+        average_confidence = float(
+            detection.get(
+                "confidence",
+                0.0,
+            )
+            or 0.0
+        )
+
+        overall_severity = str(
+            detection.get(
+                "severity",
+                "none",
+            )
+            or "none"
+        )
+
+        status = str(
+            detection.get(
+                "status",
+                "unknown",
+            )
+        )
+
+        st.metric(
+            "Total Potholes",
+            pothole_count,
+        )
+
+        st.metric(
+            "Average Confidence",
+            f"{average_confidence * 100:.2f}%",
+        )
+
+        st.metric(
+            "Severity",
+            overall_severity.capitalize(),
+        )
+
+        if overall_severity.lower() == "undetermined":
+            st.info(
+                "Automatic severity could not be determined "
+                "for this detection from the available depth "
+                "and road-surface analysis."
+            )
+        else:
+            st.caption(
+                "Severity is estimated automatically using "
+                "YOLOv8 detection and depth-based road-surface analysis."
+            )
+
+        st.caption(
+            f"Backend status: {status}"
+        )
+
+        st.caption(
+            "Confidence threshold used: "
+            f"{confidence_threshold:.0%}"
+        )
+
+        if location_enabled:
+            st.caption(
+                "GPS saved: "
+                f"{float(latitude):.6f}, "
+                f"{float(longitude):.6f}"
+            )
+        else:
+            st.caption(
+                "GPS: Not provided"
+            )
+
+    # ------------------------------------------------------------
+    # Summary table
+    # ------------------------------------------------------------
+
+    st.markdown(
+        "### Detection Summary"
+    )
+
+    severity_counts = {
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Undetermined": 0,
+    }
+
+    detected = []
+
+    image_width, image_height = image.size
+    image_area = image_width * image_height
+
+    for index, pothole in enumerate(potholes):
+        confidence = float(
+            pothole.get(
+                "confidence",
+                0.0,
+            )
+        )
+
+        width = float(
+            pothole.get(
+                "width",
+                0.0,
+            )
+        )
+
+        height = float(
+            pothole.get(
+                "height",
+                0.0,
+            )
+        )
+
+        size = float(
+            pothole.get(
+                "size",
+                width * height,
+            )
+        )
+
+        severity = str(
+            pothole.get(
+                "severity",
+                "undetermined",
+            )
+        ).capitalize()
+
+        if severity not in severity_counts:
+            severity = "Undetermined"
+
+        severity_counts[severity] += 1
+
+        bbox = pothole.get(
+            "bbox",
+            {},
+        )
+
+        x_min = float(
+            bbox.get(
+                "x_min",
+                0,
+            )
+        )
+
+        y_min = float(
+            bbox.get(
+                "y_min",
+                0,
+            )
+        )
+
+        x_max = float(
+            bbox.get(
+                "x_max",
+                0,
+            )
+        )
+
+        y_max = float(
+            bbox.get(
+                "y_max",
+                0,
+            )
+        )
+
+        center_x = int((x_min + x_max) / 2)
+        center_y = int((y_min + y_max) / 2)
+
+        area_ratio = (
+            size / image_area
+            if image_area > 0
+            else 0
+        )
+
+        detected.append(
+            {
+                "ID": f"P{index + 1:03d}",
+                "Severity": severity,
+                "Confidence": f"{confidence * 100:.2f}%",
+                "Size": f"{width:.0f} x {height:.0f}",
+                "Location": f"({center_x}, {center_y})",
+                "Area Ratio": f"{area_ratio:.2%}",
+            }
+        )
+
+    if detected:
+        df = pd.DataFrame(detected)
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info(
+            "No potholes were detected."
+        )
+
+    # ------------------------------------------------------------
+    # Severity chart
+    # ------------------------------------------------------------
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=[
+                    "High",
+                    "Medium",
+                    "Low",
+                    "Undetermined",
+                ],
+                y=[
+                    severity_counts["High"],
+                    severity_counts["Medium"],
+                    severity_counts["Low"],
+                    severity_counts["Undetermined"],
+                ],
+            )
+        ]
+    )
+
+    fig.update_layout(
+        title="Severity Distribution",
+        height=300,
+        yaxis_title="Number of Potholes",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    # ------------------------------------------------------------
+    # Individual pothole details
+    # ------------------------------------------------------------
+
+    st.markdown(
+        "### Detected Potholes"
+    )
+
+    for index, pothole in enumerate(potholes):
+        pothole_id = pothole.get("id")
+
+        severity = str(
+            pothole.get(
+                "severity",
+                "undetermined",
+            )
+        ).capitalize()
+
+        with st.expander(
+            f"Pothole {index + 1} - {severity}"
+        ):
+            detail_col1, detail_col2 = st.columns(2)
+
+            with detail_col1:
+                st.write(
+                    "**Severity:** "
+                    f"{severity}"
+                )
+
+                st.write(
+                    "**Confidence:** "
+                    f"{float(pothole.get('confidence', 0.0)) * 100:.2f}%"
+                )
+
+            with detail_col2:
+                st.write(
+                    "**Bounding Box Size:** "
+                    f"{float(pothole.get('width', 0.0)):.0f} x "
+                    f"{float(pothole.get('height', 0.0)):.0f}"
+                )
+
+                bbox = pothole.get("bbox", {})
+
+                center_x = (
+                    float(bbox.get("x_min", 0))
+                    + float(bbox.get("x_max", 0))
+                ) / 2
+
+                center_y = (
+                    float(bbox.get("y_min", 0))
+                    + float(bbox.get("y_max", 0))
+                ) / 2
+
+                st.write(
+                    "**Center:** "
+                    f"({int(center_x)}, {int(center_y)})"
+                )
+
+                st.write(
+                    "**Pothole ID:** "
+                    f"{pothole_id}"
+                )
+
+            st.caption(
+                "Severity is estimated automatically from "
+                "YOLOv8 detection and the depth-based analysis "
+                "of the surrounding road surface."
+            )
 
 
 def show_video_detection():
