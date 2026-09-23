@@ -175,32 +175,84 @@ def show():
 
     st.markdown("## Statistics Overview")
 
+    st.markdown("""
+    <style>
+    .dashboard-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 18px 20px;
+        min-height: 120px;
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+    }
+
+    .dashboard-card-label {
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+
+    .dashboard-card-value {
+        color: #0f172a;
+        font-size: 30px;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+
+    .dashboard-card-description {
+        color: #94a3b8;
+        font-size: 11px;
+        margin-top: 8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric(
-            label="Total Scans",
-            value=total_scans,
-        )
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="dashboard-card-label">TOTAL SCANS</div>
+            <div class="dashboard-card-value">{total_scans}</div>
+            <div class="dashboard-card-description">
+                All detection scans
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col2:
-        st.metric(
-            label="Potholes Found",
-            value=total_potholes,
-        )
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="dashboard-card-label">POTHOLES FOUND</div>
+            <div class="dashboard-card-value">{total_potholes}</div>
+            <div class="dashboard-card-description">
+                Detected potholes
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col3:
-        st.metric(
-            label="High Severity",
-            value=high_count,
-        )
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="dashboard-card-label">HIGH SEVERITY</div>
+            <div class="dashboard-card-value">{high_count}</div>
+            <div class="dashboard-card-description">
+                Requires attention
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col4:
-        st.metric(
-            label="Pending",
-            value=pending_count,
-        )
-
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="dashboard-card-label">PENDING</div>
+            <div class="dashboard-card-value">{pending_count}</div>
+            <div class="dashboard-card-description">
+                Awaiting processing
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     # ------------------------------------------------------------
     # Analytics
     # ------------------------------------------------------------
